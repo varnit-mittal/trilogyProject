@@ -16,6 +16,14 @@ import { translateText, translateSpeech } from "@/lib/api"
 import he from "he"
 import debounce from "lodash/debounce"
 
+// Extend the Window interface to include webkitSpeechRecognition for TypeScript
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
+
 export default function TranslatorPage() {
   const [sourceLanguage, setSourceLanguage] = useState("en-US")
   const [targetLanguage, setTargetLanguage] = useState("es")
@@ -26,29 +34,21 @@ export default function TranslatorPage() {
   const [autoDetect, setAutoDetect] = useState(true)
   const [detectedLanguage, setDetectedLanguage] = useState("auto")
   const [inputMode, setInputMode] = useState<"voice" | "text">("voice")
-  
-  // New state for wake word listener status
   const [wakeWordStatus, setWakeWordStatus] = useState("Initializing...")
 
-  const configRef = useRef({ autoDetect, sourceLanguage, targetLanguage })
-  configRef.current = { autoDetect, sourceLanguage, targetLanguage }
-
-  const isInitialRender = useRef(true)
-  
-  // New ref for the wake word recognition instance
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const isComponentMounted = useRef(true);
 
-  // Debounced text translation
+  // --- EFFECT 1: Text Translation Debouncing ---
   const debouncedTranslateText = useRef(
-    debounce(async (text: string) => {
+    debounce(async (text: string, srcLang: string, tgtLang: string, auto: boolean) => {
       if (!text.trim()) {
         setTranslatedText("")
         return
       }
       setIsTranslating(true)
       try {
-        const { autoDetect, sourceLanguage, targetLanguage } = configRef.current
-        const res = await translateText(text, targetLanguage, autoDetect ? "auto" : sourceLanguage)
+        const res = await translateText(text, tgtLang, auto ? "auto" : srcLang)
         setTranslatedText(he.decode(res.translation))
         setDetectedLanguage(res.detected_language || "auto")
       } catch (err) {
@@ -61,21 +61,30 @@ export default function TranslatorPage() {
   ).current
 
   useEffect(() => {
+    // Cleanup debounce on unmount
     return () => debouncedTranslateText.cancel()
   }, [debouncedTranslateText])
 
   const handleTextTranslation = (text: string) => {
-    if (text === currentText) return
     setCurrentText(text)
-    debouncedTranslateText(text)
+    debouncedTranslateText(text, sourceLanguage, targetLanguage, autoDetect)
   }
 
-  // Main speech translation logic
   useEffect(() => {
-    const runTranslation = async () => {
-      if (!isRecording) return
+    if (currentText.trim()) {
+      handleTextTranslation(currentText)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetLanguage])
+
+
+  // --- EFFECT 2: Main Speech Translation Trigger ---
+  useEffect(() => {
+    if (!isRecording) return
+
+    const runSpeechTranslation = async () => {
       setIsTranslating(true)
-      setWakeWordStatus("Actively translating...") // Update status during translation
+      setWakeWordStatus("Listening & Translating...")
       try {
         const result = await translateSpeech(autoDetect ? "auto" : sourceLanguage, targetLanguage)
         setCurrentText(result.transcript)
@@ -83,85 +92,109 @@ export default function TranslatorPage() {
         setDetectedLanguage(result.source_language || "auto")
       } catch (err) {
         console.error("Speech translation error:", err)
-        setTranslatedText("[Speech translation failed]")
+        if (err instanceof Error && err.message === "No speech detected.") {
+          setCurrentText("No speech was detected. Please try again.")
+        } else {
+          setCurrentText("[Speech translation failed]")
+        }
+        setTranslatedText("")
       } finally {
         setIsTranslating(false)
-        setIsRecording(false) // This will trigger the wake word listener to restart
+        setIsRecording(false) // This is key to re-activate the wake word listener
       }
     }
-    runTranslation()
-  }, [isRecording, autoDetect, sourceLanguage, targetLanguage])
+    
+    runSpeechTranslation()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording])
 
-  // Wake word listener effect
+  // --- EFFECT 3: Initialize and Cleanup Wake Word Listener ---
   useEffect(() => {
+    isComponentMounted.current = true;
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setWakeWordStatus("Browser not supported.")
       return
     }
 
-    if (!recognitionRef.current) {
-      const recognition = new SpeechRecognition()
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = "en-US" // Wake word is in English
+    const recognition = new SpeechRecognition()
+    recognitionRef.current = recognition
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = "en-US" // Wake word is in English
 
-      recognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
-          .map((result) => result[0])
-          .map((result) => result.transcript)
-          .join("")
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0])
+        .map((result) => result.transcript)
+        .join("")
 
-        if (transcript.toLowerCase().includes("jarvis")) {
-          // Check if we are not already recording to prevent loops
-          if (!isRecording) {
+      if (transcript.toLowerCase().includes("jarvis")) {
+        // Use a function for setIsRecording to get the latest state and prevent race conditions
+        setIsRecording(current => {
+          if (!current) { // Only trigger if not already recording
             console.log("Wake word detected!")
-            setIsRecording(true)
+            return true
           }
-        }
-      }
-      
-      recognition.onerror = (event) => {
-        console.error("Wake word error:", event.error)
-        if (event.error === "not-allowed") {
-          setWakeWordStatus("Mic permission needed for 'Jarvis'.")
-        }
-      }
-
-      recognitionRef.current = recognition
-    }
-
-    const recognition = recognitionRef.current
-
-    if (isRecording) {
-      recognition.stop()
-    } else {
-      try {
-        recognition.start()
-        setWakeWordStatus("Ready. Say 'Jarvis' to start.")
-      } catch (e) {
-        // This can happen if it's already started, which is fine.
+          return current
+        })
       }
     }
     
-    // Cleanup on unmount
-    return () => {
-      recognition.stop()
+    recognition.onerror = (event) => {
+      // console.error("Wake word error:", event.error)
+      if (event.error === "not-allowed") {
+        setWakeWordStatus("Mic permission needed for 'Jarvis'.")
+      }
     }
-  }, [isRecording]) // This effect now manages the listener based on recording state
 
-  // Re-translate when target language changes
+    // This is crucial for reliability. If the listener stops, restart it.
+    recognition.onend = () => {
+      if (isComponentMounted.current && inputMode === 'voice' && !isRecording) {
+        console.log("Wake word listener ended, restarting...");
+        setWakeWordStatus("Listener restarting...")
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error("Error restarting recognition:", e)
+        }
+      }
+    };
+
+    // Cleanup on component unmount
+    return () => {
+      isComponentMounted.current = false;
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        console.log("Wake word listener cleaned up.")
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty array ensures this runs only once on mount
+
+  // --- EFFECT 4: Control Wake Word Listener (Start/Stop) ---
   useEffect(() => {
-    if (isInitialRender.current) {
-      isInitialRender.current = false
-      return
+    const recognition = recognitionRef.current
+    if (!recognition) return
+
+    // Stop listening if we switch to text mode or start active recording
+    if (inputMode === "text" || isRecording) {
+      recognition.stop()
+    } 
+    // Start listening if we are in voice mode and not recording
+    else if (inputMode === "voice" && !isRecording) {
+      try {
+        recognition.start()
+        setWakeWordStatus("Ready. Say 'Jarvis' to translate.")
+      } catch (e) {
+        // Catches error if recognition is already started, which is fine.
+        console.log("Recognition already started.")
+      }
     }
-    if (currentText.trim()) {
-      debouncedTranslateText.cancel()
-      debouncedTranslateText(currentText)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetLanguage])
+  }, [inputMode, isRecording])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -180,7 +213,7 @@ export default function TranslatorPage() {
                   <Languages className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Real-time Speech Translator</h1>
+                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Real-time Translator</h1>
                   <p className="text-gray-600 dark:text-gray-400">Speak, type, or just say "Jarvis" to translate</p>
                 </div>
               </div>
@@ -200,13 +233,7 @@ export default function TranslatorPage() {
               autoDetect={autoDetect}
               onSourceLanguageChange={setSourceLanguage}
               onTargetLanguageChange={setTargetLanguage}
-              onAutoDetectChange={(val) => {
-                setAutoDetect(val)
-                if (isRecording) {
-                  setIsRecording(false)
-                  setTimeout(() => setIsRecording(true), 100)
-                }
-              }}
+              onAutoDetectChange={setAutoDetect}
             />
           </Card>
         </motion.div>
@@ -249,7 +276,7 @@ export default function TranslatorPage() {
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/50 dark:bg-gray-800/50 rounded-full backdrop-blur-sm">
             {inputMode === "voice" ? (
               <>
-                <Ear className={`w-4 h-4 ${!isRecording ? 'text-green-500' : 'text-gray-400'}`} />
+                <Ear className={`w-4 h-4 ${!isRecording ? 'text-green-500 animate-pulse' : 'text-gray-400'}`} />
                 <span className="text-sm text-gray-600 dark:text-gray-400">{wakeWordStatus}</span>
               </>
             ) : (

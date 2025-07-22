@@ -280,7 +280,7 @@ export default function LandingPage() {
             <span className="text-lg font-semibold text-gray-900 dark:text-white">SpeechTranslator</span>
           </div>
           <p className="text-gray-600 dark:text-gray-400">
-            © 2024 SpeechTranslator. Breaking language barriers with AI.
+            © 2025 SpeechTranslator. Breaking language barriers with AI.
           </p>
         </div>
       </footer>

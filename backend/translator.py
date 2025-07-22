@@ -118,7 +118,10 @@ def stream_transcription(target_lang="en-US", source_lang="auto"):
             result = response.results[0]
             if result.is_final and result.alternatives:
                 transcript = result.alternatives[0].transcript
-                lang = lang_code_used
+                # print(response)
+                lang = result.language_code
+                if not lang:
+                    lang = lang_code_used
                 translation = translate_text(transcript, lang, target_lang, translate_client)
                 results.append({
                     "transcript": transcript,
