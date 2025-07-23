@@ -87,8 +87,8 @@ def stream_transcription(target_lang="en-US", source_lang="auto"):
     if source_lang == "auto":
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=RATE,
-            language_code="hi-IN",  # temporary base for auto
+            sample_rate_hertz=RATE, 
+            language_code="hi-IN",  # temporary base for auto ja-JP
             alternative_language_codes=POSSIBLE_LANGUAGES,
             enable_automatic_punctuation=True,
             # safest fallback model

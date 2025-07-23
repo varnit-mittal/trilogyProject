@@ -16,7 +16,6 @@ import { translateText, translateSpeech } from "@/lib/api"
 import he from "he"
 import debounce from "lodash/debounce"
 
-// Extend the Window interface to include webkitSpeechRecognition for TypeScript
 declare global {
   interface Window {
     SpeechRecognition: typeof SpeechRecognition;
@@ -37,9 +36,9 @@ export default function TranslatorPage() {
   const [wakeWordStatus, setWakeWordStatus] = useState("Initializing...")
 
   const recognitionRef = useRef<SpeechRecognition | null>(null)
-  const isComponentMounted = useRef(true);
+  const isComponentMounted = useRef(true)
+  const previousTargetLang = useRef(targetLanguage)
 
-  // --- EFFECT 1: Text Translation Debouncing ---
   const debouncedTranslateText = useRef(
     debounce(async (text: string, srcLang: string, tgtLang: string, auto: boolean) => {
       if (!text.trim()) {
@@ -61,24 +60,23 @@ export default function TranslatorPage() {
   ).current
 
   useEffect(() => {
-    // Cleanup debounce on unmount
     return () => debouncedTranslateText.cancel()
   }, [debouncedTranslateText])
 
   const handleTextTranslation = (text: string) => {
+    if (text === currentText) return
     setCurrentText(text)
     debouncedTranslateText(text, sourceLanguage, targetLanguage, autoDetect)
   }
 
   useEffect(() => {
-    if (currentText.trim()) {
-      handleTextTranslation(currentText)
+    if (currentText.trim() && targetLanguage !== previousTargetLang.current) {
+      debouncedTranslateText(currentText, sourceLanguage, targetLanguage, autoDetect)
+      previousTargetLang.current = targetLanguage
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetLanguage])
 
-
-  // --- EFFECT 2: Main Speech Translation Trigger ---
   useEffect(() => {
     if (!isRecording) return
 
@@ -100,17 +98,16 @@ export default function TranslatorPage() {
         setTranslatedText("")
       } finally {
         setIsTranslating(false)
-        setIsRecording(false) // This is key to re-activate the wake word listener
+        setIsRecording(false)
       }
     }
-    
+
     runSpeechTranslation()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording])
 
-  // --- EFFECT 3: Initialize and Cleanup Wake Word Listener ---
   useEffect(() => {
-    isComponentMounted.current = true;
+    isComponentMounted.current = true
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
       setWakeWordStatus("Browser not supported.")
@@ -121,7 +118,7 @@ export default function TranslatorPage() {
     recognitionRef.current = recognition
     recognition.continuous = true
     recognition.interimResults = true
-    recognition.lang = "en-US" // Wake word is in English
+    recognition.lang = "en-US"
 
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
@@ -130,9 +127,8 @@ export default function TranslatorPage() {
         .join("")
 
       if (transcript.toLowerCase().includes("jarvis")) {
-        // Use a function for setIsRecording to get the latest state and prevent race conditions
         setIsRecording(current => {
-          if (!current) { // Only trigger if not already recording
+          if (!current) {
             console.log("Wake word detected!")
             return true
           }
@@ -140,15 +136,13 @@ export default function TranslatorPage() {
         })
       }
     }
-    
+
     recognition.onerror = (event) => {
-      // console.error("Wake word error:", event.error)
       if (event.error === "not-allowed") {
         setWakeWordStatus("Mic permission needed for 'Jarvis'.")
       }
     }
 
-    // This is crucial for reliability. If the listener stops, restart it.
     recognition.onend = () => {
       if (isComponentMounted.current && inputMode === 'voice' && !isRecording) {
         console.log("Wake word listener ended, restarting...");
@@ -159,38 +153,32 @@ export default function TranslatorPage() {
           console.error("Error restarting recognition:", e)
         }
       }
-    };
+    }
 
-    // Cleanup on component unmount
     return () => {
-      isComponentMounted.current = false;
+      isComponentMounted.current = false
       if (recognitionRef.current) {
         recognitionRef.current.stop()
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
+        recognitionRef.current.onresult = null
+        recognitionRef.current.onerror = null
+        recognitionRef.current.onend = null
         console.log("Wake word listener cleaned up.")
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Empty array ensures this runs only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // --- EFFECT 4: Control Wake Word Listener (Start/Stop) ---
   useEffect(() => {
     const recognition = recognitionRef.current
     if (!recognition) return
 
-    // Stop listening if we switch to text mode or start active recording
     if (inputMode === "text" || isRecording) {
       recognition.stop()
-    } 
-    // Start listening if we are in voice mode and not recording
-    else if (inputMode === "voice" && !isRecording) {
+    } else if (inputMode === "voice" && !isRecording) {
       try {
         recognition.start()
         setWakeWordStatus("Ready. Say 'Jarvis' to translate.")
       } catch (e) {
-        // Catches error if recognition is already started, which is fine.
         console.log("Recognition already started.")
       }
     }
@@ -200,31 +188,29 @@ export default function TranslatorPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <div id="main-content" className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/">
-                <Button variant="outline" size="icon" className="focus:ring-2 focus:ring-blue-500 bg-transparent">
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
-              </Link>
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-600 rounded-xl">
-                  <Languages className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Real-time Translator</h1>
-                  <p className="text-gray-600 dark:text-gray-400">Speak, type, or just say "Jarvis" to translate</p>
-                </div>
+          <div className="flex items-center gap-4">
+            <Link href="/">
+              <Button variant="outline" size="icon" className="focus:ring-2 focus:ring-blue-500 bg-transparent">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            </Link>
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-blue-600 rounded-xl">
+                <Languages className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Real-time Translator</h1>
+                <p className="text-gray-600 dark:text-gray-400">Speak, type, or just say "Jarvis" to translate</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <HighContrastToggle />
-              <ThemeToggle />
-            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <HighContrastToggle />
+            <ThemeToggle />
+          </div>
         </motion.div>
 
-        {/* Language Selector */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="p-6">
             <LanguageSelector
@@ -238,7 +224,6 @@ export default function TranslatorPage() {
           </Card>
         </motion.div>
 
-        {/* Input Mode Toggle */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="flex justify-center">
           <div className="flex bg-white dark:bg-gray-800 rounded-lg p-1 border-2 border-gray-200 dark:border-gray-600">
             <Button variant={inputMode === "voice" ? "default" : "ghost"} size="sm" onClick={() => setInputMode("voice")} className="flex items-center gap-2">
@@ -250,7 +235,6 @@ export default function TranslatorPage() {
           </div>
         </motion.div>
 
-        {/* Main Input Control */}
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }} className="flex justify-center">
           {inputMode === "voice" ? (
             <MicrophoneControl isRecording={isRecording} onToggleRecording={() => setIsRecording(!isRecording)} />
@@ -259,7 +243,6 @@ export default function TranslatorPage() {
           )}
         </motion.div>
 
-        {/* Translation Display */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
           <TranslationDisplay
             currentText={currentText}
@@ -271,7 +254,6 @@ export default function TranslatorPage() {
           />
         </motion.div>
 
-        {/* Status Indicator */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/50 dark:bg-gray-800/50 rounded-full backdrop-blur-sm">
             {inputMode === "voice" ? (

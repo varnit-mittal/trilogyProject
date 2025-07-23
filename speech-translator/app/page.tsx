@@ -3,6 +3,13 @@
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { HighContrastToggle } from "@/components/high-contrast-toggle"
 import { Languages, Mic, Type, Zap, Globe, Shield, ArrowRight, Users, Star } from "lucide-react"
@@ -123,9 +130,31 @@ export default function LandingPage() {
                   <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
               </Link>
-              <Button variant="outline" size="lg" className="text-lg px-8 py-6 bg-transparent">
-                Watch Demo
-              </Button>
+              
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="lg" className="text-lg px-8 py-6 bg-transparent">
+                    Watch Demo
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-4xl p-0">
+                  <DialogHeader>
+                    <DialogTitle className="sr-only">Product Demo Video</DialogTitle>
+                  </DialogHeader>
+                  <div className="aspect-video">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      src="https://www.youtube.com/embed/WdYXzhVmF6w?si=xEOjlauBgJtgIQTP" // <-- IMPORTANT: REPLACE _w4hG-i_J5s WITH YOUR VIDEO ID
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
             </motion.div>
 
             {/* Hero Image/Demo */}

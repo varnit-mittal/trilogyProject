@@ -40,34 +40,45 @@ def translate_audio():
             audio_content = f.read()
 
         audio = speech.RecognitionAudio(content=audio_content)
+
+        # --- CORRECTED CONFIGURATION ---
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
             sample_rate_hertz=48000,
-            language_code='en-US'  # or auto-detect if needed
+            language_code='en-US',
+            # Add these two lines to handle stereo audio
+            audio_channel_count=2,
+            enable_separate_recognition_per_channel=True
         )
+        # --- END CORRECTION ---
 
         response = speech_client.recognize(config=config, audio=audio)
+        
+        # Clean up the temporary file
+        os.unlink(audio_path)
 
         if not response.results:
             print("No speech detected.")
-            return '', 204
+            # Changed to return a JSON response for consistency
+            return jsonify({"translation": ""}), 200
 
         transcript = response.results[0].alternatives[0].transcript
         print(f"Transcript: {transcript}")
 
         # Translate
-        translation = translate_client.translate(transcript, target_language=target_lang)['translatedText']
+        translation_result = translate_client.translate(transcript, target_language=target_lang)
+        translation = translation_result['translatedText']
         print(f"Translation: {translation}")
 
         return jsonify({"translation": translation})
 
     except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"translation": ""}), 200
-
-    except Exception as e:
         print(f"Error in /api/translate-audio: {e}")
+        # Ensure temp file is deleted even if an error occurs
+        if 'audio_path' in locals() and os.path.exists(audio_path):
+            os.unlink(audio_path)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/api/translate-speech', methods=['GET'])
 def translate_speech():
